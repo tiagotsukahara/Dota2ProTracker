@@ -1,0 +1,19 @@
+appId: com.teislab.dota2protracker.metagrid
+productName: Dota2ProTracker Meta Grid
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+win:
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
