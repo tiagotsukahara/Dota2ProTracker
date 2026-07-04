@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "npm.cmd run build:main && vite --host 127.0.0.1",
     "start": "npm.cmd run build && electron .",
-    "build": "npm.cmd run typecheck && npm.cmd run build:main && npm.cmd run build:renderer",
+    "icons": "node build/generate-icon.mjs",
+    "build": "npm.cmd run icons && npm.cmd run typecheck && npm.cmd run build:main && npm.cmd run build:renderer",
     "build:main": "tsc -p tsconfig.node.json",
     "build:renderer": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",

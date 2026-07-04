@@ -1,7 +1,9 @@
 export type MetaMode = "most-played" | "high-winrate" | "d2pt-rating";
+export type AppLanguage = "pt-BR" | "en" | "es";
 
 export interface AppSettings {
   targetFolder: string | null;
+  language: AppLanguage;
 }
 
 export interface DownloadRequest {
@@ -16,6 +18,12 @@ export interface DownloadResult {
   fileSizeBytes: number;
   savedAt: string;
   warning: string | null;
+}
+
+export interface DotaCfgFolder {
+  steamId: string;
+  cfgPath: string;
+  hasHeroGrid: boolean;
 }
 
 export interface DownloadStatus {
@@ -33,6 +41,7 @@ export interface DownloadStatus {
 
 export interface D2ptApi {
   selectTargetFolder: () => Promise<string | null>;
+  detectDotaCfgFolders: () => Promise<DotaCfgFolder[]>;
   openTargetFolder: (targetFolder: string) => Promise<void>;
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: AppSettings) => Promise<AppSettings>;

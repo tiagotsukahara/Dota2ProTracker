@@ -3,6 +3,7 @@ import type { AppSettings, D2ptApi, DownloadRequest, DownloadStatus } from "../s
 
 const api: D2ptApi = {
   selectTargetFolder: () => ipcRenderer.invoke("select-target-folder"),
+  detectDotaCfgFolders: () => ipcRenderer.invoke("detect-dota-cfg-folders"),
   openTargetFolder: (targetFolder: string) => ipcRenderer.invoke("open-target-folder", targetFolder),
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),

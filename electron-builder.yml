@@ -4,9 +4,11 @@ directories:
   output: release
 files:
   - dist/**
+  - build/app-icon.ico
   - package.json
 win:
-  signAndEditExecutable: false
+  icon: build/app-icon.ico
+  signExecutable: false
   target:
     - target: nsis
       arch:

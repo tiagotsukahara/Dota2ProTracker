@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions
@@ -13,18 +14,28 @@ import type { AppSettings, DownloadRequest, DownloadStatus, MetaMode } from "../
 import { installValidatedHeroGrid } from "./fileOps";
 import { readSettings, writeSettings } from "./settings";
 import { downloadMetaGridFromOfficialPage } from "./dota2ptDownloader";
+import { detectDotaCfgFolders } from "./steamDetector";
 
 let mainWindow: BrowserWindow | null = null;
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
+function getAppIconPath(): string {
+  return path.join(app.getAppPath(), "build", "app-icon.ico");
+}
+
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
-    width: 940,
-    height: 680,
-    minWidth: 760,
-    minHeight: 560,
+    width: 920,
+    height: 620,
+    minWidth: 920,
+    minHeight: 620,
+    maxWidth: 920,
+    maxHeight: 620,
+    useContentSize: true,
+    resizable: false,
     title: "Dota2ProTracker Meta Grid",
+    icon: getAppIconPath(),
     backgroundColor: "#111316",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -42,6 +53,7 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerIpc();
   await createWindow();
 
@@ -73,6 +85,12 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
+  ipcMain.handle("detect-dota-cfg-folders", async (event) => {
+    assertTrustedSender(event);
+
+    return detectDotaCfgFolders();
+  });
+
   ipcMain.handle("open-target-folder", async (event, targetFolder: unknown) => {
     assertTrustedSender(event);
 
@@ -80,10 +98,20 @@ function registerIpc(): void {
     await shell.openPath(normalizedTargetFolder);
   });
 
-  ipcMain.handle("get-settings", (event) => {
+  ipcMain.handle("get-settings", async (event) => {
     assertTrustedSender(event);
 
-    return readSettings(app.getPath("userData"));
+    const settings = await readSettings(app.getPath("userData"));
+    if (!settings.targetFolder) {
+      return settings;
+    }
+
+    const stats = await fs.stat(settings.targetFolder).catch(() => null);
+    if (stats?.isDirectory()) {
+      return settings;
+    }
+
+    return writeSettings(app.getPath("userData"), { ...settings, targetFolder: null });
   });
 
   ipcMain.handle("save-settings", async (event, settings: unknown) => {
@@ -133,12 +161,14 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
 
 function validateSettings(settings: unknown): AppSettings {
   if (!settings || typeof settings !== "object") {
-    return { targetFolder: null };
+    return { targetFolder: null, language: "en" };
   }
 
   const targetFolder = (settings as Partial<AppSettings>).targetFolder;
+  const language = (settings as Partial<AppSettings>).language;
   return {
-    targetFolder: typeof targetFolder === "string" && targetFolder.trim() ? targetFolder : null
+    targetFolder: typeof targetFolder === "string" && targetFolder.trim() ? targetFolder : null,
+    language: language === "pt-BR" || language === "en" || language === "es" ? language : "en"
   };
 }
 

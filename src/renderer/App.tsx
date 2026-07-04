@@ -1,38 +1,33 @@
-import { AlertTriangle, CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { DownloadResult, DownloadStatus, MetaMode } from "../shared/types";
+import type { AppLanguage, DotaCfgFolder, DownloadResult, DownloadStatus, MetaMode } from "../shared/types";
 import { META_MODE_LABELS } from "../shared/types";
-
-const MODES: Array<{
-  mode: MetaMode;
-  title: string;
-  description: string;
-}> = [
-  {
-    mode: "most-played",
-    title: "Most Played",
-    description: "Top 7 herois mais escolhidos por funcao no patch atual."
-  },
-  {
-    mode: "high-winrate",
-    title: "High Winrate",
-    description: "Herois populares filtrados por mais de 50% de winrate."
-  },
-  {
-    mode: "d2pt-rating",
-    title: "D2PT Rating",
-    description: "Ranking pelo sistema de avaliacao do Dota2ProTracker."
-  }
-];
+import { AppToolbar } from "./components/AppToolbar";
+import { ModeGrid, type ModeOption } from "./components/ModeGrid";
+import { StatusBar } from "./components/StatusBar";
+import { TargetFolderSection } from "./components/TargetFolderSection";
+import { COPY, detectInitialLanguage } from "./i18n";
 
 export default function App() {
+  const [language, setLanguage] = useState<AppLanguage>(() => detectInitialLanguage());
   const [targetFolder, setTargetFolder] = useState<string>("");
   const [status, setStatus] = useState<DownloadStatus | null>(null);
   const [result, setResult] = useState<DownloadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<MetaMode | null>(null);
+  const [detectedFolders, setDetectedFolders] = useState<DotaCfgFolder[]>([]);
+  const [detectionMessage, setDetectionMessage] = useState<string | null>(null);
+  const [isDetecting, setIsDetecting] = useState(false);
 
   const isBusy = activeMode !== null;
+  const copy = COPY[language];
+  const modes = useMemo<ModeOption[]>(
+    () =>
+      (Object.keys(copy.modes) as MetaMode[]).map((mode) => ({
+        mode,
+        ...copy.modes[mode]
+      })),
+    [copy]
+  );
   const folderWarning = useMemo(() => {
     if (!targetFolder) {
       return null;
@@ -40,20 +35,54 @@ export default function App() {
 
     return /steam[\\/]userdata[\\/][^\\/]+[\\/]570[\\/]remote[\\/]cfg$/i.test(targetFolder)
       ? null
-      : "A pasta selecionada nao parece ser a pasta cfg do Dota 2.";
-  }, [targetFolder]);
+      : copy.folderWarning;
+  }, [copy.folderWarning, targetFolder]);
 
   useEffect(() => {
+    let mounted = true;
+
     window.d2pt.getSettings().then((settings) => {
-      if (settings.targetFolder) {
-        setTargetFolder(settings.targetFolder);
+      if (!mounted) {
+        return;
       }
+
+      setLanguage(settings.language);
+      const savedTargetFolder = settings.targetFolder || "";
+      if (settings.targetFolder) {
+        setTargetFolder(savedTargetFolder);
+      }
+
+      detectFolders(true, savedTargetFolder);
     });
 
-    return window.d2pt.onDownloadStatus((nextStatus) => {
+    const unsubscribe = window.d2pt.onDownloadStatus((nextStatus) => {
       setStatus(nextStatus);
     });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
+
+  async function saveAppSettings(folder: string | null, nextLanguage = language) {
+    await window.d2pt.saveSettings({ targetFolder: folder, language: nextLanguage });
+  }
+
+  async function applyTargetFolder(folder: string, message: string | null) {
+    setTargetFolder(folder);
+    setDetectionMessage(message);
+    await saveAppSettings(folder);
+  }
+
+  async function changeLanguage(nextLanguage: AppLanguage) {
+    if (nextLanguage === language) {
+      return;
+    }
+
+    setLanguage(nextLanguage);
+    await saveAppSettings(targetFolder || null, nextLanguage);
+  }
 
   async function chooseFolder() {
     const selected = await window.d2pt.selectTargetFolder();
@@ -61,14 +90,59 @@ export default function App() {
       return;
     }
 
-    setTargetFolder(selected);
-    await window.d2pt.saveSettings({ targetFolder: selected });
+    await applyTargetFolder(selected, copy.manualFolder);
   }
 
-  async function openFolder() {
-    if (targetFolder) {
-      await window.d2pt.openTargetFolder(targetFolder);
+  async function detectFolders(silent = false, currentTargetFolder = targetFolder) {
+    if (isBusy || isDetecting) {
+      return;
     }
+
+    setIsDetecting(true);
+    if (!silent) {
+      setDetectionMessage(null);
+    }
+
+    try {
+      const folders = await window.d2pt.detectDotaCfgFolders();
+      setDetectedFolders(folders);
+
+      if (folders.length === 0) {
+        setDetectionMessage(copy.noSteamFolder);
+        return;
+      }
+
+      if (folders.length === 1) {
+        if (silent && currentTargetFolder) {
+          setDetectionMessage(null);
+          return;
+        }
+
+        await applyTargetFolder(folders[0].cfgPath, `${copy.autoFolder}: Steam ID ${folders[0].steamId}.`);
+        return;
+      }
+
+      if (silent && currentTargetFolder) {
+        setDetectionMessage(null);
+        return;
+      }
+
+      setDetectionMessage(`${folders.length} ${copy.multipleAccounts}`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : copy.detectError;
+      setDetectionMessage(message);
+    } finally {
+      setIsDetecting(false);
+    }
+  }
+
+  async function chooseDetectedFolder(cfgPath: string) {
+    const folder = detectedFolders.find((item) => item.cfgPath === cfgPath);
+    if (!folder) {
+      return;
+    }
+
+    await applyTargetFolder(folder.cfgPath, `${copy.selectedFolder}: Steam ID ${folder.steamId}.`);
   }
 
   async function download(mode: MetaMode) {
@@ -79,13 +153,13 @@ export default function App() {
     setActiveMode(mode);
     setError(null);
     setResult(null);
-    setStatus({ phase: "loading-page", message: `Preparando ${META_MODE_LABELS[mode]}...` });
+    setStatus({ phase: "loading-page", message: `${copy.preparing} ${META_MODE_LABELS[mode]}...` });
 
     try {
       const nextResult = await window.d2pt.downloadMetaGrid({ mode, targetFolder });
       setResult(nextResult);
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Falha inesperada ao baixar o Hero Grid.";
+      const message = caught instanceof Error ? caught.message : copy.detectError;
       setError(message);
     } finally {
       setActiveMode(null);
@@ -94,108 +168,29 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="toolbar">
-        <div>
-          <h1>Dota2ProTracker Meta Grid</h1>
-          <p>Baixe o meta atual direto para o Hero Grid do Dota 2.</p>
-        </div>
-        <ShieldCheck className="toolbar-icon" aria-hidden="true" />
-      </section>
+      <AppToolbar subtitle={copy.subtitle} language={language} onChangeLanguage={changeLanguage} />
 
-      <section className="target-section" aria-label="Pasta de destino">
-        <div className="section-heading">
-          <h2>Pasta de destino</h2>
-          <button type="button" className="secondary-button" onClick={chooseFolder} disabled={isBusy}>
-            <FolderOpen size={18} />
-            Selecionar
-          </button>
-        </div>
+      <TargetFolderSection
+        copy={copy}
+        targetFolder={targetFolder}
+        detectedFolders={detectedFolders}
+        isBusy={isBusy}
+        isDetecting={isDetecting}
+        onChooseFolder={chooseFolder}
+        onChooseDetectedFolder={chooseDetectedFolder}
+      />
 
-        <div className="path-row">
-          <code>{targetFolder || "Nenhuma pasta selecionada"}</code>
-          <button type="button" className="icon-button" onClick={openFolder} disabled={!targetFolder || isBusy} title="Abrir pasta">
-            <ExternalLink size={18} />
-          </button>
-        </div>
+      <ModeGrid
+        title={copy.gridTitle}
+        subtitle={copy.gridSubtitle}
+        downloadLabel={copy.download}
+        modes={modes}
+        activeMode={activeMode}
+        isDisabled={!targetFolder || isBusy}
+        onDownload={download}
+      />
 
-        {folderWarning && (
-          <p className="warning-line">
-            <AlertTriangle size={17} />
-            {folderWarning}
-          </p>
-        )}
-      </section>
-
-      <section className="mode-grid" aria-label="Modos de Hero Grid">
-        {MODES.map((item) => (
-          <article className="mode-card" key={item.mode}>
-            <div>
-              <h2>{item.title}</h2>
-              <p>{item.description}</p>
-            </div>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => download(item.mode)}
-              disabled={!targetFolder || isBusy}
-            >
-              {activeMode === item.mode ? <Loader2 size={18} className="spin" /> : <Download size={18} />}
-              Baixar
-            </button>
-          </article>
-        ))}
-      </section>
-
-      <section className="status-section" aria-live="polite">
-        <h2>Status</h2>
-        <StatusBody status={status} result={result} error={error} />
-      </section>
+      <StatusBar status={status} result={result} error={error} alert={folderWarning || detectionMessage} copy={copy} />
     </main>
   );
-}
-
-function StatusBody({
-  status,
-  result,
-  error
-}: {
-  status: DownloadStatus | null;
-  result: DownloadResult | null;
-  error: string | null;
-}) {
-  if (error) {
-    return (
-      <div className="status-box error">
-        <AlertTriangle size={20} />
-        <span>{error}</span>
-      </div>
-    );
-  }
-
-  if (result) {
-    return (
-      <div className="result-stack">
-        <div className="status-box success">
-          <CheckCircle2 size={20} />
-          <span>Salvo em {result.destinationPath}</span>
-        </div>
-        {result.backupPath && <p>Backup criado: {result.backupPath}</p>}
-        {result.warning && <p className="warning-text">{result.warning}</p>}
-        <p>
-          Arquivo: {(result.fileSizeBytes / 1024).toFixed(1)} KB - {new Date(result.savedAt).toLocaleString()}
-        </p>
-      </div>
-    );
-  }
-
-  if (status) {
-    return (
-      <div className="status-box neutral">
-        {status.phase === "done" ? <CheckCircle2 size={20} /> : <Loader2 size={20} className="spin" />}
-        <span>{status.message}</span>
-      </div>
-    );
-  }
-
-  return <p className="muted">Selecione uma pasta e escolha um modo para baixar.</p>;
 }

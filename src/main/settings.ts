@@ -1,9 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { AppSettings } from "../shared/types";
+import type { AppLanguage, AppSettings } from "../shared/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
-  targetFolder: null
+  targetFolder: null,
+  language: "en"
 };
 
 export async function readSettings(userDataPath: string): Promise<AppSettings> {
@@ -14,7 +15,8 @@ export async function readSettings(userDataPath: string): Promise<AppSettings> {
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
 
     return {
-      targetFolder: typeof parsed.targetFolder === "string" ? parsed.targetFolder : null
+      targetFolder: typeof parsed.targetFolder === "string" ? parsed.targetFolder : null,
+      language: normalizeLanguage(parsed.language)
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -23,7 +25,8 @@ export async function readSettings(userDataPath: string): Promise<AppSettings> {
 
 export async function writeSettings(userDataPath: string, settings: AppSettings): Promise<AppSettings> {
   const normalized: AppSettings = {
-    targetFolder: settings.targetFolder || null
+    targetFolder: settings.targetFolder || null,
+    language: normalizeLanguage(settings.language)
   };
 
   await fs.mkdir(userDataPath, { recursive: true });
@@ -34,4 +37,8 @@ export async function writeSettings(userDataPath: string, settings: AppSettings)
 
 function getSettingsPath(userDataPath: string): string {
   return path.join(userDataPath, "settings.json");
+}
+
+function normalizeLanguage(value: unknown): AppLanguage {
+  return value === "pt-BR" || value === "es" || value === "en" ? value : "en";
 }
